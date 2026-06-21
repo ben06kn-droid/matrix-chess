@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Matrix Chess</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background: #1a1a2e;
+      color: #eee;
+      font-family: Georgia, serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 24px 16px;
+      min-height: 100vh;
+    }
+
+    h1 { color: #e2c17a; font-size: 1.8em; letter-spacing: 2px; margin-bottom: 4px; }
+    p.subtitle { color: #777; font-size: 0.8em; margin-bottom: 16px; }
+
+    /* ---------- status bar ---------- */
+    #status-bar {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 12px;
+      font-size: 1.05em;
+      min-height: 28px;
+    }
+    .dot {
+      width: 14px; height: 14px;
+      border-radius: 50%;
+      border: 1px solid #888;
+      flex-shrink: 0;
+    }
+    .dot.white { background: #f0d9b5; }
+    .dot.black { background: #222; }
+    #status-text { color: #ccc; }
+    #status-text.check    { color: #ff6b6b; font-weight: bold; }
+    #status-text.gameover { color: #e2c17a; font-weight: bold; }
+
+    /* ---------- board ---------- */
+    #board-wrap {
+      display: flex;
+      gap: 0;
+    }
+
+    #rank-labels {
+      display: flex;
+      flex-direction: column;
+      justify-content: space-around;
+      padding-right: 6px;
+      color: #777;
+      font-size: 0.8em;
+      user-select: none;
+    }
+
+    #board {
+      display: grid;
+      grid-template-columns: repeat(8, 68px);
+      grid-template-rows: repeat(8, 68px);
+      border: 3px solid #555;
+      box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+    }
+
+    .sq {
+      width: 68px; height: 68px;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 46px;
+      cursor: pointer;
+      position: relative;
+      user-select: none;
+      transition: background 0.1s;
+    }
+    .sq.light { background: #f0d9b5; }
+    .sq.dark  { background: #b58863; }
+
+    .sq.selected            { background: #7fc97f !important; }
+    .sq.legal               { background: #a8d8a8 !important; }
+    .sq.legal.has-piece     { background: #f0d9b5 !important; box-shadow: inset 0 0 0 4px #5cb85c; }
+    .sq.dark.legal          { background: #8fc98f !important; }
+    .sq.dark.legal.has-piece{ background: #b58863 !important; box-shadow: inset 0 0 0 4px #5cb85c; }
+
+    /* dot hint for empty legal squares */
+    .sq.legal:not(.has-piece)::after {
+      content: '';
+      position: absolute;
+      width: 26px; height: 26px;
+      border-radius: 50%;
+      background: rgba(0, 100, 0, 0.25);
+      pointer-events: none;
+    }
+
+    .piece { pointer-events: none; line-height: 1; }
+    .piece.white { filter: drop-shadow(0 1px 2px rgba(0,0,0,0.6)); }
+    .piece.black { color: #111; filter: drop-shadow(0 1px 1px rgba(200,200,200,0.2)); }
+
+    #file-labels {
+      display: grid;
+      grid-template-columns: repeat(8, 68px);
+      color: #777;
+      font-size: 0.8em;
+      text-align: center;
+      margin-top: 4px;
+      user-select: none;
+    }
+
+    /* ---------- controls ---------- */
+    #controls { margin-top: 18px; display: flex; gap: 10px; }
+    button {
+      padding: 8px 22px;
+      background: #2e2e50;
+      color: #ddd;
+      border: 1px solid #555;
+      border-radius: 5px;
+      font-family: Georgia, serif;
+      font-size: 0.95em;
+      cursor: pointer;
+    }
+    button:hover { background: #3e3e70; }
+
+    /* ---------- promotion modal ---------- */
+    #promo-overlay {
+      display: none;
+      position: fixed; inset: 0;
+      background: rgba(0,0,0,0.75);
+      align-items: center; justify-content: center;
+      z-index: 20;
+    }
+    #promo-overlay.show { display: flex; }
+    #promo-box {
+      background: #2a2a4a;
+      border: 2px solid #666;
+      border-radius: 10px;
+      padding: 20px 28px;
+      text-align: center;
+    }
+    #promo-box p { color: #aaa; margin-bottom: 12px; }
+    #promo-pieces { display: flex; gap: 8px; justify-content: center; }
+    .promo-btn {
+      font-size: 54px;
+      padding: 8px 12px;
+      border-radius: 6px;
+      cursor: pointer;
+      background: none;
+      border: 2px solid transparent;
+      color: inherit;
+    }
+    .promo-btn:hover { background: #3a3a5a; border-color: #888; }
+  </style>
+</head>
+<body>
+
+<h1>Matrix Chess</h1>
+<p class="subtitle">Board state · legal moves · all rules — expressed as matrix operations</p>
+
+<div id="status-bar">
+  <div class="dot" id="turn-dot"></div>
+  <span id="status-text">Loading…</span>
+</div>
+
+<div id="board-wrap">
+  <div id="rank-labels">
+    <span>8</span><span>7</span><span>6</span><span>5</span>
+    <span>4</span><span>3</span><span>2</span><span>1</span>
+  </div>
+  <div>
+    <div id="board"></div>
+    <div id="file-labels">
+      <span>a</span><span>b</span><span>c</span><span>d</span>
+      <span>e</span><span>f</span><span>g</span><span>h</span>
+    </div>
+  </div>
+</div>
+
+<div id="controls">
+  <button onclick="newGame()">New Game</button>
+</div>
+
+<!-- Promotion picker -->
+<div id="promo-overlay">
+  <div id="promo-box">
+    <p>Choose a promotion piece</p>
+    <div id="promo-pieces"></div>
+  </div>
+</div>
+
+<script>
+  // ── State ────────────────────────────────────────────────────────────────
+  let gs        = null;   // last JSON response from server
+  let selected  = null;   // [r, c] of the selected square, or null
+  let legalDsts = [];     // list of [r, c] the selected piece can go to
+
+  // piece type ids must match board.py: PAWN=1 BISHOP=2 KNIGHT=3 ROOK=4 QUEEN=5 KING=6
+  const PROMO = {
+    white: [['♕',5],['♖',4],['♗',2],['♘',3]],
+    black: [['♛',5],['♜',4],['♝',2],['♞',3]],
+  };
+  let pendingMove = null;   // {src, dst} waiting for promotion choice
+
+  // ── Server calls ─────────────────────────────────────────────────────────
+  async function fetchState() {
+    const r = await fetch('/state');
+    gs = await r.json();
+    render();
+  }
+
+  async function fetchLegal(r, c) {
+    const res = await fetch(`/legal_moves/${r}/${c}`);
+    const d   = await res.json();
+    return d.moves;          // list of [r, c]
+  }
+
+  async function sendMove(src, dst, promotion = 5) {
+    const res = await fetch('/move', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ src, dst, promotion }),
+    });
+    if (res.ok) {
+      gs = await res.json();
+      render();
+    }
+  }
+
+  async function newGame() {
+    selected  = null;
+    legalDsts = [];
+    const res = await fetch('/reset', { method: 'POST' });
+    gs = await res.json();
+    render();
+  }
+
+  // ── Click handler ─────────────────────────────────────────────────────────
+  async function onSquareClick(r, c) {
+    if (!gs || gs.game_over) return;
+
+    const piece     = gs.board[r][c];
+    const ownPiece  = piece && piece.color === gs.turn;
+    const isLegal   = legalDsts.some(([lr, lc]) => lr === r && lc === c);
+
+    if (selected) {
+      if (isLegal) {
+        // ── Promotion check ──
+        const moving = gs.board[selected[0]][selected[1]];
+        if (moving && moving.type === 1 && (r === 0 || r === 7)) {
+          pendingMove = { src: selected, dst: [r, c] };
+          showPromo(gs.turn);
+          return;
+        }
+        await sendMove(selected, [r, c]);
+        selected  = null;
+        legalDsts = [];
+        return;
+      }
+      if (ownPiece && !(r === selected[0] && c === selected[1])) {
+        // re-select a different friendly piece
+        selected  = [r, c];
+        legalDsts = await fetchLegal(r, c);
+        render();
+        return;
+      }
+      // clicked somewhere irrelevant — deselect
+      selected  = null;
+      legalDsts = [];
+      render();
+      return;
+    }
+
+    if (ownPiece) {
+      selected  = [r, c];
+      legalDsts = await fetchLegal(r, c);
+      render();
+    }
+  }
+
+  // ── Promotion modal ───────────────────────────────────────────────────────
+  function showPromo(turn) {
+    const box = document.getElementById('promo-pieces');
+    box.innerHTML = '';
+    PROMO[turn].forEach(([sym, val]) => {
+      const btn = document.createElement('button');
+      btn.className   = 'promo-btn';
+      btn.textContent = sym;
+      btn.onclick     = () => {
+        document.getElementById('promo-overlay').classList.remove('show');
+        sendMove(pendingMove.src, pendingMove.dst, val);
+        pendingMove = null;
+        selected    = null;
+        legalDsts   = [];
+      };
+      box.appendChild(btn);
+    });
+    document.getElementById('promo-overlay').classList.add('show');
+  }
+
+  // ── Render ────────────────────────────────────────────────────────────────
+  function isLegalDst(r, c) {
+    return legalDsts.some(([lr, lc]) => lr === r && lc === c);
+  }
+
+  function render() {
+    const board = document.getElementById('board');
+    board.innerHTML = '';
+
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const sq      = document.createElement('div');
+        const isLight = (r + c) % 2 === 0;
+        sq.className  = `sq ${isLight ? 'light' : 'dark'}`;
+
+        const piece = gs.board[r][c];
+        if (piece) {
+          const span      = document.createElement('span');
+          span.className  = `piece ${piece.color}`;
+          span.textContent = piece.symbol;
+          sq.appendChild(span);
+          sq.classList.add('has-piece');
+        }
+
+        if (selected && selected[0] === r && selected[1] === c)
+          sq.classList.add('selected');
+
+        if (isLegalDst(r, c))
+          sq.classList.add('legal');
+
+        sq.addEventListener('click', () => onSquareClick(r, c));
+        board.appendChild(sq);
+      }
+    }
+
+    // Status bar
+    const dot  = document.getElementById('turn-dot');
+    const text = document.getElementById('status-text');
+
+    if (gs.game_over) {
+      dot.className  = 'dot';
+      text.className = 'gameover';
+      text.textContent = gs.message;
+    } else if (gs.in_check) {
+      dot.className  = `dot ${gs.turn}`;
+      text.className = 'check';
+      text.textContent = `${cap(gs.turn)} to play — Check!`;
+    } else {
+      dot.className  = `dot ${gs.turn}`;
+      text.className = '';
+      text.textContent = `${cap(gs.turn)} to play`;
+    }
+  }
+
+  function cap(s) { return s[0].toUpperCase() + s.slice(1); }
+
+  // ── Boot ──────────────────────────────────────────────────────────────────
+  fetchState();
+</script>
+</body>
+</html>
